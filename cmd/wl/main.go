@@ -3,20 +3,22 @@ package main
 import (
 	"bufio"
 	"flag"
+	"fmt"
 	"io"
 	"log"
 	"os"
 	"strings"
+	"unicode"
 )
 
 func isLower(char string) bool {
 	// checks if char is lowercase
-	return strings.Contains("abcdefghijklmnopqrstuvwxyz", char)
+	return unicode.IsLower([]rune(char)[0])
 }
 
 func isUpper(char string) bool {
 	// checks if char is uppercase
-	return strings.Contains("ABCDEFGHIJKLMNOPQRSTUVWXYZ", char)
+	return unicode.IsUpper([]rune(char)[0])
 }
 
 func isMixed(str string) bool {
@@ -28,7 +30,7 @@ func isMixed(str string) bool {
 		} else if isUpper(string(char)) {
 			upper = true
 		}
-		if upper == lower == true {
+		if lower && upper {
 			return true
 		}
 	}
@@ -126,14 +128,18 @@ func handle(str string) []string {
 }
 
 func start(casing string, inputStream io.Reader, outputStream io.Writer) {
-	// main function that handles input, processing and output
 	del, casing := detectFooBar(casing)
 	scanner := bufio.NewScanner(inputStream)
+	writer := bufio.NewWriter(outputStream)
+	defer writer.Flush()
+
 	for scanner.Scan() {
 		line := scanner.Text()
 		parts := handle(line)
-		outputStream.Write([]byte(transform(parts, del, casing) + "\n"))
+		transformedLine := transform(parts, del, casing) + "\n"
+		writer.WriteString(transformedLine)
 	}
+
 	if err := scanner.Err(); err != nil {
 		log.Println(err)
 	}
@@ -144,32 +150,43 @@ func main() {
 	inputFile := flag.String("i", "", "input file (default stdin)")
 	outputFile := flag.String("o", "", "output file (default stdout)")
 	flag.Parse()
-	if *casing != "" {
-		outputStream := os.Stdout
-		if *outputFile != "" {
-			file, err := os.OpenFile(*outputFile, os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0644)
-			if err != nil {
-				log.Fatal(err)
-			}
-			outputStream = file
-		}
-		if *inputFile != "" {
-			inputStream, err := os.Open(*inputFile)
-			if err != nil {
-				log.Fatal(err)
-			}
-			defer inputStream.Close()
-			start(*casing, inputStream, outputStream)
-		} else {
-			fi, err := os.Stdin.Stat()
-			if err != nil {
-				panic(err)
-			}
-			if fi.Mode()&os.ModeNamedPipe != 0 {
-				start(*casing, os.Stdin, outputStream)
-			}
-		}
-	} else {
+
+	if *casing == "" {
 		flag.Usage()
+		return
 	}
+
+	outputStream := os.Stdout
+	if *outputFile != "" {
+		file, err := os.OpenFile(*outputFile, os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0644)
+		if err != nil {
+			fmt.Fprintf(os.Stderr, "failed to open output file: %v\n", err)
+			os.Exit(1)
+		}
+		defer file.Close()
+		outputStream = file
+	}
+
+	inputStream := os.Stdin
+	if *inputFile != "" {
+		file, err := os.Open(*inputFile)
+		if err != nil {
+			fmt.Fprintf(os.Stderr, "failed to open input file: %v\n", err)
+			os.Exit(1)
+		}
+		defer file.Close()
+		inputStream = file
+	} else {
+		fi, err := os.Stdin.Stat()
+		if err != nil {
+			fmt.Fprintf(os.Stderr, "failed to read standard input: %v\n", err)
+			os.Exit(1)
+		}
+		if fi.Mode()&os.ModeNamedPipe == 0 {
+			flag.Usage()
+			return
+		}
+	}
+
+	start(*casing, inputStream, outputStream)
 }
